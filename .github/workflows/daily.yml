@@ -2,7 +2,7 @@ name: Run DC Slack Bot Every Hour
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 * * * *" # 매 시간 정각
   workflow_dispatch:
     inputs:
       confirm:
@@ -16,32 +16,32 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: 📦 Checkout repo
         uses: actions/checkout@v3
 
-      - name: Setup Node
+      - name: 🟢 Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 20
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Cache checked posts
+      - name: 📁 Cache bot state (.state/dc_checked.json)
         uses: actions/cache@v3
         with:
-          path: dc_checked.json
-          key: checked-posts-cache
+          path: .state
+          key: dc-bot-cache-${{ runner.os }}
           restore-keys: |
-            checked-posts-cache
+            dc-bot-cache-
 
-      - name: Install Playwright Browsers
+      - name: 📥 Install dependencies
+        run: npm install
+
+      - name: 🧱 Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run bot
-        run: npx tsx ./dc-slack-bot.ts
-        working-directory: ${{ github.workspace }}
+      - name: 🤖 Run Slack bot
+        run: node --loader ts-node/esm dc-slack-bot.ts
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 # 깃 올릴때  git add . // git commit -m "내용" // git push origin main

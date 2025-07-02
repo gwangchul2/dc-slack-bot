@@ -2,7 +2,7 @@ name: Run DC Slack Bot Every Hour
 
 on:
   schedule:
-    - cron: "0 * * * *" # 매 시간 정각
+    - cron: "0 * * * *" # 매시간 정각
   workflow_dispatch:
     inputs:
       confirm:
@@ -18,29 +18,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout repo
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 🟢 Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: 20
 
-      - name: 📁 Cache bot state (.state/dc_checked.json)
+      - name: Install dependencies
+        run: npm install
+
+      - name: Cache checked posts
         uses: actions/cache@v3
         with:
           path: .state
-          key: dc-bot-cache-${{ runner.os }}
+          key: dc-bot-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            dc-bot-cache-
+            dc-bot-${{ runner.os }}-
 
-      - name: 📥 Install dependencies
-        run: npm install
-
-      - name: 🧱 Install Playwright Browsers
+      - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
 
-      - name: 🤖 Run Slack bot
+      - name: Run bot
         run: node --loader ts-node/esm dc-slack-bot.ts
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

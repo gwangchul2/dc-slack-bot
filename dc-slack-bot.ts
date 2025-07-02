@@ -44,33 +44,24 @@ async function loadCheckedPosts(): Promise<State> {
   try {
     const raw = await readFile(statePath, "utf-8");
     return JSON.parse(raw);
-  } catch (e) {
-    console.error("🔴 상태 파일 로딩 실패:", e);
+  } catch {
     return {};
   }
 }
 
 async function saveCheckedPosts(state: State) {
-  try {
-    await writeFile(statePath, JSON.stringify(state, null, 2));
-  } catch (e) {
-    console.error("🔴 상태 파일 저장 실패:", e);
-  }
+  await writeFile(statePath, JSON.stringify(state, null, 2));
 }
 
 async function sendToSlack(text: string) {
-  try {
-    const res = await fetch(SLACK_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
+  const res = await fetch(SLACK_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
 
-    if (!res.ok) {
-      console.error("🔴 슬랙 응답 실패:", res.status, await res.text());
-    }
-  } catch (e) {
-    console.error("🔴 슬랙 전송 실패:", e);
+  if (!res.ok) {
+    console.error("🔴 슬랙 응답 실패:", res.status, await res.text());
   }
 }
 
@@ -108,17 +99,11 @@ async function crawlAndNotify() {
         const isNew = !checked[name].includes(post.no);
 
         if (isMatch && isNew) {
-          const message = `[${name}] ${post.title}\n${post.link}`;
+          const message = `📢 *[${name}]* 새 글 발견!\n> ${post.title}\n\n🔗 <${post.link}|게시글 바로가기>`;
           console.log("🔔 슬랙 전송 시도:", message);
-
-          try {
-            await sendToSlack(message);
-          } catch (e) {
-            console.error("🔴 슬랙 전송 실패 (그래도 저장함):", e);
-          }
-
+          await sendToSlack(message);
           checked[name].push(post.no);
-          checked[name] = checked[name].slice(-50);
+          checked[name] = checked[name].slice(-50); // 최근 50개만 유지
         }
       }
     } catch (e) {

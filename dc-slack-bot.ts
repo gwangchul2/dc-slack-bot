@@ -113,94 +113,115 @@ async function sendToSlack(text: string) {
 }
 
 async function crawlAndNotify() {
-  const browser = await pw.chromium.launch({ headless: true }); // Headless 브라우저 실행
+  const browser = await pw.chromium.launch({ headless: true });
   const context = await browser.newContext({
-    // 디씨에서 자동화 탐지를 피하기 위해 일반 브라우저의 User-Agent 설정
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
   });
-  const page = await context.newPage(); // 새 페이지 생성
-  const checked = await loadCheckedPosts(); // 이전에 체크한 게시물 불러오기
-  const sentSet = new Set<string>(); // 이번 실행에서 이미 전송한 게시글 번호 저장 (중복 방지)
+  const page = await context.newPage();
+  const checked = await loadCheckedPosts();
+  const sentInThisRun = new Map<string, string[]>(); // 갤러리별 전송 성공한 게시글 번호
 
   for (const { name, url } of GALLERIES) {
     console.log(`[크롤링 시작] ${name}`);
-    checked[name] ||= []; // 해당 갤러리의 게시글 번호 배열 초기화
+    checked[name] ||= [];
+    sentInThisRun[name] ||= [];
 
-    const isMinor = url.includes("/mgallery/"); // 마이너 갤러리 여부 판단
-    const baseUrl = new URL(url); // URL 객체로 파싱
-    const posts: { title: string; link: string; no: string }[] = []; // 수집된 게시물 배열
+    const isMinor = url.includes("/mgallery/");
+    const baseUrl = new URL(url);
+    const posts: { title: string; link: string; no: string }[] = [];
 
     for (let pageNum = 1; pageNum <= 15; pageNum++) {
-      // 페이지를 1~15까지 순회
-      const pageUrl = new URL(baseUrl.toString()); // base URL 복사
-      pageUrl.searchParams.set("page", String(pageNum)); // page 파라미터 설정
+      const pageUrl = new URL(baseUrl.toString());
+      pageUrl.searchParams.set("page", String(pageNum));
 
       try {
         await page.goto(pageUrl.toString(), {
-          waitUntil: "domcontentloaded", // DOM 로딩만 기다림 (성능 향상)
-          timeout: 60000, // 최대 60초 대기
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
         });
 
-        const selector = isMinor ? ".us-post" : ".gall_list .ub-content"; // 마이너/일반 갤에 따라 셀렉터 다르게
-        await page.waitForSelector(selector, { timeout: 15000 }); // 셀렉터가 나타날 때까지 대기
+        const selector = isMinor ? ".us-post" : ".gall_list .ub-content";
+        await page.waitForSelector(selector, { timeout: 15000 });
 
         const newPosts = await page.$$eval(selector, (rows) =>
           rows.map((row) => {
             const a = row.querySelector(
               ".gall_tit a",
-            ) as HTMLAnchorElement | null; // 제목 링크 요소 선택
-            const title = a?.textContent?.trim() || ""; // 제목 텍스트 추출
-            const link = a?.href || ""; // 링크 URL 추출
-            const no = link.match(/no=(\d+)/)?.[1] || ""; // 게시글 번호 추출
-            return { title, link, no }; // 게시물 객체 반환
+            ) as HTMLAnchorElement | null;
+            const title = a?.textContent?.trim() || "";
+            const link = a?.href || "";
+            const no = link.match(/no=(\d+)/)?.[1] || "";
+            return { title, link, no };
           }),
         );
 
-        posts.push(...newPosts); // 누적 수집
+        posts.push(...newPosts);
       } catch (e) {
-        console.error(`[오류] ${name} 페이지 ${pageNum}:`, e); // 에러 발생 시 로깅
+        console.error(`[오류] ${name} 페이지 ${pageNum}:`, e);
       }
     }
 
     console.log(`[${name}] 총 게시물 수집: ${posts.length}개`);
-    console.log(posts.slice(0, 3)); // 일부만 출력 (디버깅용)
+    console.log(posts.slice(0, 3));
 
-    for (const post of posts) {
-      if (!post.no || !post.title) continue; // 번호나 제목이 없으면 건너뜀
+    // 새 글 필터링 및 전송
+    const newPosts = posts.filter(
+      (post) => post.no && post.title && !checked[name].includes(post.no),
+    );
 
+    for (const post of newPosts) {
       const isMatch = KEYWORDS.some(
-        (k) => post.title.toLowerCase().includes(k.toLowerCase()), // 키워드 포함 여부 체크 (대소문자 무시)
+        (k) => post.title.toLowerCase().includes(k.toLowerCase()),
       );
-      const isNew = !checked[name].includes(post.no); // 이미 확인한 게시물인지 확인
-      const alreadySent = sentSet.has(post.no); // 이번 실행에서 이미 전송했는지 확인
 
-      if (isMatch && isNew && !alreadySent) {
-        const message = `[${name}] 새 글 발견!\n> ${post.title}\n\n링크: ${post.link}`; // 알림 메시지 구성
-        console.log("슬랙 전송:", message);
+      if (isMatch) {
+        const message = `[${name}] 새 글 발견!\n> ${post.title}\n\n링크: ${post.link}`;
+        console.log("슬랙 전송 시도:", message);
 
-        // 슬랙 전송 후 상태에만 추가 (저장 실패해도 메모리상 중복 방지)
         try {
-          await sendToSlack(message); // 슬랙으로 전송
-          checked[name].push(post.no); // 슬랙 전송 성공 후에만 상태에 추가
-          sentSet.add(post.no); // 이번 실행에서 전송한 게시글로 기록
-          checked[name] = checked[name].slice(-50); // 최근 50개까지만 유지 (메모리 절약)
+          await sendToSlack(message);
+          checked[name].push(post.no);
+          sentInThisRun[name].push(post.no);
+          console.log(`✅ 전송 성공: ${name} - ${post.no}`);
         } catch (error) {
-          console.error(`[오류] 슬랙 전송 중 예외 발생 (${name}, ${post.no}):`, error); // 전송 실패 시 로깅
-          // 전송 실패 시 상태에 추가하지 않음 (다음 실행에 재시도)
+          console.error(
+            `❌ 전송 실패: ${name} - ${post.no}:`,
+            error,
+          );
         }
+      } else {
+        // 키워드 미매칭 게시글도 상태에 추가해서 다시 확인하지 않게 함
+        checked[name].push(post.no);
       }
     }
+
+    // 갤러리별 최근 100개만 유지
+    checked[name] = checked[name].slice(-100);
   }
 
-  await saveCheckedPosts(checked); // 갱신된 확인 목록 저장
-  await browser.close(); // 브라우저 종료
+  // 최종 상태 저장
+  await saveCheckedPosts(checked);
+  await browser.close();
+
+  // 실행 결과 요약
+  const totalSent = Object.values(sentInThisRun).reduce(
+    (sum, arr) => sum + arr.length,
+    0,
+  );
+  console.log(`\n✅ 실행 완료: 총 ${totalSent}개 알람 전송`);
 }
 
-crawlAndNotify().catch((e) => {
-  console.error("전체 실행 실패:", e); // 최상위 예외 처리
-});
+crawlAndNotify()
+  .then(() => {
+    console.log("✅ 프로그램 정상 종료");
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error("전체 실행 실패:", e);
+    process.exit(1);
+  });
 
 
 

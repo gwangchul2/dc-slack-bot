@@ -84,6 +84,11 @@ async function saveCheckedPosts(state: State) {
   try {
     await mkdir(".state", { recursive: true }); // 디렉토리가 없으면 생성
 
+    // 각 갤러리별 최근 1000개까지만 유지 (중복 알람 방지)
+    for (const gallery of Object.keys(state)) {
+      state[gallery] = state[gallery].slice(-1000);
+    }
+
     // 백업 생성 (기존 파일이 있으면 먼저 백업)
     try {
       const existing = await readFile(statePath, "utf-8");
@@ -196,9 +201,6 @@ async function crawlAndNotify() {
         checked[name].push(post.no);
       }
     }
-
-    // 갤러리별 최근 100개만 유지
-    checked[name] = checked[name].slice(-100);
   }
 
   // 최종 상태 저장

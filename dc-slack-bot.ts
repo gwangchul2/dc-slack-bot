@@ -32,7 +32,7 @@ const GALLERIES = [
     url: "https://gall.dcinside.com/board/lists/?id=travel_asia",
   },
   {
-    
+
     name: "중국홍콩마카오갤",
 
     url: "https://gall.dcinside.com/board/lists?id=china",
@@ -44,64 +44,29 @@ const GALLERIES = [
 ];
 
 const statePath = "./.state/dc_checked.json"; // 이미 확인한 게시글 번호를 저장할 파일 경로
-const backupPath = "./.state/dc_checked.backup.json"; // 백업 파일 경로
-type State = Record<string, string[]>; // 갤러리별로 게시글 번호 목록을 저장하는 객체 타입
+type CheckedSet = Set<string>; // "갤러리명_게시글번호" 형태의 unique key 저장
 
-async function loadCheckedPosts(): Promise<State> {
+async function loadCheckedPosts(): Promise<CheckedSet> {
   try {
-    const raw = await readFile(statePath, "utf-8"); // 이전에 저장한 JSON 파일 읽기
-    const state = JSON.parse(raw); // 파싱해서 반환
-
-    // 상태 파일이 비정상적으로 작아졌는지 체크 (초기화 감지)
-    if (Object.keys(state).length === 0 || Object.values(state).some((arr) => !Array.isArray(arr))) {
-      console.warn("⚠️ 상태 파일이 비정상입니다. 백업에서 복구 시도...");
-      try {
-        const backupRaw = await readFile(backupPath, "utf-8");
-        const backupState = JSON.parse(backupRaw);
-        console.log("✅ 백업에서 복구 완료");
-        return backupState;
-      } catch {
-        console.warn("⚠️ 백업도 없습니다. 새로 시작합니다.");
-        return {};
-      }
-    }
-
-    return state;
-  } catch {
-    console.warn("⚠️ 상태 파일을 읽을 수 없습니다. 백업 사용 시도...");
-    try {
-      const backupRaw = await readFile(backupPath, "utf-8"); // 백업 파일 읽기
-      console.log("✅ 백업 파일에서 복구 완료");
-      return JSON.parse(backupRaw);
-    } catch {
-      console.warn("⚠️ 백업도 없습니다. 새로 시작합니다.");
-      return {}; // 파일 없거나 에러 시 빈 객체 반환 (처음 실행하는 경우)
-    }
+    const raw = await readFile(statePath, "utf-8");
+    const lines = raw.trim().split("\n").filter(l => l.length > 0);
+    const set = new Set<string>(lines);
+    console.log(`✅ 상태 파일 로드: ${set.size}개 게시글 추적 중`);
+    return set;
+  } catch (e) {
+    console.log("ℹ️ 상태 파일 없음. 새로 시작합니다.");
+    return new Set<string>();
   }
 }
 
-async function saveCheckedPosts(state: State) {
+async function saveCheckedPosts(checked: CheckedSet) {
   try {
-    await mkdir(".state", { recursive: true }); // 디렉토리가 없으면 생성
-
-    // 각 갤러리별 최근 1000개까지만 유지 (중복 알람 방지)
-    for (const gallery of Object.keys(state)) {
-      state[gallery] = state[gallery].slice(-1000);
-    }
-
-    // 백업 생성 (기존 파일이 있으면 먼저 백업)
-    try {
-      const existing = await readFile(statePath, "utf-8");
-      await writeFile(backupPath, existing); // 기존 상태를 백업으로 저장
-    } catch {
-      // 첫 실행인 경우 백업 없음
-    }
-
-    // 새 상태 저장
-    await writeFile(statePath, JSON.stringify(state, null, 2)); // 확인한 게시글 번호 저장 (포맷팅 포함)
-    console.log("✅ 상태 파일 저장 완료");
+    await mkdir(".state", { recursive: true });
+    const lines = Array.from(checked).sort();
+    await writeFile(statePath, lines.join("\n") + "\n");
+    console.log(`✅ 상태 파일 저장: ${checked.size}개 게시글 추적`);
   } catch (error) {
-    console.error("❌ 상태 파일 저장 실패:", error); // 저장 실패 시 로깅 (프로그램은 계속 실행)
+    console.error("❌ 상태 파일 저장 실패:", error);
   }
 }
 
@@ -126,13 +91,10 @@ async function crawlAndNotify() {
   });
   const page = await context.newPage();
   const checked = await loadCheckedPosts();
-  const sentInThisRun = new Map<string, string[]>(); // 갤러리별 전송 성공한 게시글 번호
+  let sentCount = 0;
 
   for (const { name, url } of GALLERIES) {
-    console.log(`[크롤링 시작] ${name}`);
-    checked[name] ||= [];
-    sentInThisRun[name] ||= [];
-
+    console.log(`\n[크롤링] ${name}`);
     const isMinor = url.includes("/mgallery/");
     const baseUrl = new URL(url);
     const posts: { title: string; link: string; no: string }[] = [];
@@ -164,55 +126,57 @@ async function crawlAndNotify() {
 
         posts.push(...newPosts);
       } catch (e) {
-        console.error(`[오류] ${name} 페이지 ${pageNum}:`, e);
+        console.error(`  ⚠️ 페이지 ${pageNum} 오류: ${e}`);
       }
     }
 
-    console.log(`[${name}] 총 게시물 수집: ${posts.length}개`);
-    console.log(posts.slice(0, 3));
+    console.log(`  수집: ${posts.length}개 게시물`);
 
-    // 새 글 필터링 및 전송
-    const newPosts = posts.filter(
-      (post) => post.no && post.title && !checked[name].includes(post.no),
+    // 중복 제거
+    const uniquePosts = new Map<string, typeof posts[0]>();
+    for (const post of posts) {
+      if (post.no && post.title) {
+        uniquePosts.set(post.no, post);
+      }
+    }
+
+    console.log(`  중복 제거 후: ${uniquePosts.size}개`);
+
+    // 새 글만 필터링
+    const newPosts = Array.from(uniquePosts.values()).filter(
+      (post) => !checked.has(`${name}_${post.no}`),
     );
 
+    console.log(`  신규: ${newPosts.length}개`);
+
     for (const post of newPosts) {
+      const key = `${name}_${post.no}`;
+
+      // 키워드 매칭 확인
       const isMatch = KEYWORDS.some(
         (k) => post.title.toLowerCase().includes(k.toLowerCase()),
       );
 
       if (isMatch) {
         const message = `[${name}] 새 글 발견!\n> ${post.title}\n\n링크: ${post.link}`;
-        console.log("슬랙 전송 시도:", message);
 
         try {
           await sendToSlack(message);
-          checked[name].push(post.no);
-          sentInThisRun[name].push(post.no);
-          console.log(`✅ 전송 성공: ${name} - ${post.no}`);
+          console.log(`  ✅ 전송 성공: ${post.no}`);
+          sentCount++;
         } catch (error) {
-          console.error(
-            `❌ 전송 실패: ${name} - ${post.no}:`,
-            error,
-          );
+          console.error(`  ❌ 전송 실패: ${post.no} - ${error}`);
         }
-      } else {
-        // 키워드 미매칭 게시글도 상태에 추가해서 다시 확인하지 않게 함
-        checked[name].push(post.no);
       }
+
+      // 전송 성공/실패 관계없이 상태에 추가 (중복 방지)
+      checked.add(key);
     }
   }
 
-  // 최종 상태 저장
-  await saveCheckedPosts(checked);
   await browser.close();
-
-  // 실행 결과 요약
-  const totalSent = Object.values(sentInThisRun).reduce(
-    (sum, arr) => sum + arr.length,
-    0,
-  );
-  console.log(`\n✅ 실행 완료: 총 ${totalSent}개 알람 전송`);
+  await saveCheckedPosts(checked);
+  console.log(`\n✅ 실행 완료: ${sentCount}개 알람 전송`);
 }
 
 crawlAndNotify()

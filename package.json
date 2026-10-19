@@ -6,7 +6,10 @@
   "main": "index.js",
   "scripts": {
     "start": "tsx ./dc-slack-bot.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx --test bot.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:collectors": "tsx --test collectors.test.ts",
+    "audit": "tsx ./dc-slack-bot.ts --audit"
   },
   "repository": {
     "type": "git",

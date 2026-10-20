@@ -1,9 +1,14 @@
 import { Ledger } from "./bot-state.js";
 
-export const KEYWORDS = ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "이심", "esim"];
+export const KEYWORDS = ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "esim"];
 export interface Post { id: number; title: string; link: string; notice: boolean }
 export interface Source { key: string; name: string; kind: "dc" | "naver"; url: string; clubId?: string }
 export const matchesKeyword = (title: string) => KEYWORDS.some(word => title.toLowerCase().includes(word.toLowerCase()));
+
+// Filter the recurring campaign header only in Osaka Holic; keep ordinary reviews.
+export const shouldNotify = (source: Source, title: string) => matchesKeyword(title) && !(
+  source.key === "naver:20421433" && /^\s*\[[^\p{L}\p{N}]*유심사\s*단독\s*프로모션\s*\]/u.test(title.normalize("NFKC"))
+);
 
 export function formatAlert(source: Source, post: Post): string {
   const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -32,7 +37,7 @@ export async function sendFirstPage(source: Source, ledger: Ledger, rows: Post[]
   if (!posts.length || posts.some((post, i) => i > 0 && post.id > posts[i - 1].id))
     throw new Error(`${source.name}: 최신순 일반 글을 확인하지 못했습니다.`);
   const unique = [...new Map(posts.map(post => [post.id, post])).values()];
-  const matches = unique.filter(post => matchesKeyword(post.title));
+  const matches = unique.filter(post => shouldNotify(source, post.title));
   let sent = 0;
   for (const post of matches) {
     if (post.id <= legacyFloor || legacyChecked.has(post.id)) continue;
@@ -63,7 +68,7 @@ export async function sendRecentPages(source: Source, ledger: Ledger, readPage: 
     pagesRead = number;
     console.log(`  ${number}페이지 확인 (${rows.length}개 일반 글)`);
     if (number === count) {
-      const eligible = [...posts.values()].some(post => post.id > alertFloor && matchesKeyword(post.title) && !legacyChecked.has(post.id) && !ledger.attempts.has(`${source.key}:${post.id}`));
+      const eligible = [...posts.values()].some(post => post.id > alertFloor && shouldNotify(source, post.title) && !legacyChecked.has(post.id) && !ledger.attempts.has(`${source.key}:${post.id}`));
       if (eligible) break;
       if (fallbackCount > count) console.log(`  ${count}페이지 내 미전송 키워드 글 없음 → ${fallbackCount}페이지까지 확장`);
     }
@@ -97,7 +102,7 @@ export async function collectSource(source: Source, ledger: Ledger, readPage: (p
       return 0;
     }
     for (const post of fresh) {
-      if (post.id <= previous || !matchesKeyword(post.title)) continue;
+      if (post.id <= previous || !shouldNotify(source, post.title)) continue;
       if (await deliverOnce(ledger, `${source.key}:${post.id}`, formatAlert(source, post), send)) sent++;
     }
     // Require descending chronological lists; do not advance on incomplete/gapped scans.

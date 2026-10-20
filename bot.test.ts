@@ -18,10 +18,36 @@ async function fixture(run: (dir: string, ledger: Ledger) => Promise<void>) {
   }
 }
 
-test("brand keywords plus 이심 and case-insensitive esim match", () => {
-  for (const title of ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "일본 이심 추천", "esim", "eSIM 후기", "ESIM 질문", "EsIm 설치"]) assert.ok(matchesKeyword(title));
-  for (const title of ["일본 유심 추천", "로깨비", "로밍망", "로컬망"]) assert.equal(matchesKeyword(title), false);
+test("brand keywords and case-insensitive esim match but generic 이심 does not", () => {
+  for (const title of ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "esim", "eSIM 후기", "ESIM 질문", "EsIm 설치"]) assert.ok(matchesKeyword(title));
+  for (const title of ["일본 이심 추천", "이심 설치 질문", "일본 유심 추천", "로깨비", "로밍망", "로컬망"]) assert.equal(matchesKeyword(title), false);
 });
+test("Osaka campaign reposts are suppressed while reviews and other cafes still alert", () => fixture(async (_dir, ledger) => {
+  const osaka: Source = { ...source, key: "naver:20421433", clubId: "20421433", name: "오사카홀릭" };
+  const campaign = "[🔥유심사 단독 프로모션] 유심 이심 30% 추가할인 / 이심 600원부터 ~";
+  const delivered: string[] = [];
+  await ledger.cursor(osaka.key, 100);
+  await collectSource(osaka, ledger, async () => [post(103, campaign), post(102, "유심사 단독 프로모션 이용 후기"), post(101, "말톡 후기"), post(100)], async message => { delivered.push(message); }, 1);
+  assert.equal(delivered.length, 2);
+  assert.ok(!delivered.some(message => message.includes("600원")));
+  assert.equal(ledger.cursors.get(osaka.key), 103);
+  assert.equal(ledger.attempts.has(`${osaka.key}:103`), false);
+  await ledger.cursor(source.key, 100);
+  await collectSource(source, ledger, async () => [post(103, campaign), post(100)], async message => { delivered.push(message); }, 1);
+  assert.equal(delivered.length, 3);
+  assert.ok(delivered[2].includes("600원"));
+}));
+test("manual scan excludes campaign variants and expands past blocked-only pages", () => fixture(async (_dir, ledger) => {
+  const osaka: Source = { ...source, key: "naver:20421433", clubId: "20421433", name: "오사카홀릭" };
+  await ledger.cursor(osaka.key, 100);
+  const delivered: string[] = [];
+  const result = await sendRecentPages(osaka, ledger, async page => [post(200 - page, page === 15 ? "유심사 실제 이용 후기" : page % 2 ? "［🔥 유심사  단독 프로모션］ esim 할인" : "[유심사단독프로모션] esim 900원")], async message => { delivered.push(message); }, 10, new Set(), 20);
+  assert.equal(result.pagesRead, 20);
+  assert.equal(result.sent, 1);
+  assert.equal(delivered.length, 1);
+  assert.ok(delivered[0].includes("실제 이용 후기"));
+  assert.equal(ledger.cursors.get(osaka.key), 199);
+}));
 test("explicit first page sends baseline-only matches once and preserves existing cursor", () => fixture(async (dir, ledger) => {
   await ledger.cursor(source.key, 20);
   let sent = 0;
@@ -67,7 +93,7 @@ test("manual backfill reads exactly ten pages and never sends older history", ()
 test("later manual scans suppress old unalerted posts after keyword or title changes", () => fixture(async (_dir, ledger) => {
   await ledger.cursor(source.key, 100);
   const delivered: string[] = [];
-  const read = async () => [post(101, "eSIM 설치 질문"), post(99, "이심 새 키워드에 맞는 예전 글")];
+  const read = async () => [post(101, "eSIM 설치 질문"), post(99, "esim 새 키워드에 맞는 예전 글")];
   await sendRecentPages(source, ledger, read, async message => { delivered.push(message); }, 1);
   assert.equal(delivered.length, 1);
   assert.ok(delivered[0].includes("eSIM 설치 질문"));

@@ -127,3 +127,14 @@ Windows 예약 작업 DC-Slack-Bot-30min의 최종 반복 간격은 사용자 �
 - 정기 수집과 수동 수집은 동일한 formatAlert 함수를 사용합니다.
 - 알림 표시 변경은 기존 전송 기록과 글 식별 키에 영향을 주지 않습니다. 과거 알림은 다시 보내지 않습니다.
 - 블로그 구현은 사용자 요청으로 보류합니다.
+
+## 2026-10-20 과거 로그 정리
+
+- 운영 코드, npm 명령, GitHub 워크플로 및 실제 Windows 예약 작업을 재확인한 뒤,
+  참조되지 않는 crawl-check.log, test-run.log, final-test.log, debug.log를 정리했습니다.
+- final-test.log는 저장소에서도 삭제하고, 새로 생성되는 *.log는 .gitignore로 제외합니다.
+  브라우저가 debug.log를 다시 만들 수 있지만 Git에는 포함되지 않습니다.
+- 운영 로그 bot-log.txt, 중복 방지 상태 .state 전체, 자동화 테스트 코드, 기존 상태 백업은 보존합니다.
+- 개인 작업 파일과 이번 정리와 관계없는 파일은 커밋에 포함하지 않습니다.
+- 정리 전후 .state/notifications.jsonl, dc_checked.json, ledger.initialized의 SHA-256이 동일함을 확인했습니다.
+  로그 정리 후 핵심 테스트 23개와 TypeScript 검사도 통과했습니다. 검증 중 슬랙은 호출하지 않았습니다.

@@ -5,4 +5,5 @@ dc_checked.json
 playwright/.cache
 .state/
 bot-log.txt
+*.log
 venv/

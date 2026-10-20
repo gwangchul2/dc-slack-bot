@@ -14,4 +14,6 @@ export const SOURCES: Source[] = [
   { key: "naver:11547302", name: "다낭 도깨비", kind: "naver", clubId: "11547302", url: "https://cafe.naver.com/happyibook" },
   { key: "naver:17373998", name: "베나자", kind: "naver", clubId: "17373998", url: "https://cafe.naver.com/mindy7857" },
   { key: "naver:11670610", name: "중정공", kind: "naver", clubId: "11670610", url: "https://cafe.naver.com/zhcafe" },
+  { key: "naver:20508270", name: "체크인데이", kind: "naver", clubId: "20508270", url: "https://cafe.naver.com/20daelee" },
+  { key: "naver:28022184", name: "잘란잘란 인도네시아", kind: "naver", clubId: "28022184", url: "https://cafe.naver.com/jalanjalanindonesia" },
 ];

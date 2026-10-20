@@ -5,6 +5,13 @@ export interface Post { id: number; title: string; link: string; notice: boolean
 export interface Source { key: string; name: string; kind: "dc" | "naver"; url: string; clubId?: string }
 export const matchesKeyword = (title: string) => KEYWORDS.some(word => title.toLowerCase().includes(word.toLowerCase()));
 
+export function formatAlert(source: Source, post: Post): string {
+  const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const label = source.kind === "dc" ? "🟧 [디시]" : "🟩 [네이버 카페]";
+  const keywords = KEYWORDS.filter(word => post.title.toLowerCase().includes(word.toLowerCase()));
+  return `${label} *${escape(source.name)}*\n> ${escape(post.title)}\n🔎 ${keywords.join(" · ")} · <${post.link}|원문 보기>`;
+}
+
 export async function deliverOnce(ledger: Ledger, key: string, message: string, send: (text: string) => Promise<void>) {
   if (!await ledger.reserve(key)) return false;
   // Never retry an ambiguous webhook request, including errors/timeouts/non-2xx responses.
@@ -29,7 +36,7 @@ export async function sendFirstPage(source: Source, ledger: Ledger, rows: Post[]
   let sent = 0;
   for (const post of matches) {
     if (post.id <= legacyFloor || legacyChecked.has(post.id)) continue;
-    if (await deliverOnce(ledger, `${source.key}:${post.id}`, `[${source.name}] 키워드 글 발견!\n> ${post.title}\n\n링크: ${post.link}`, send)) sent++;
+    if (await deliverOnce(ledger, `${source.key}:${post.id}`, formatAlert(source, post), send)) sent++;
   }
   // Do not move an established cursor over pages we did not read.
   if (!ledger.cursors.has(source.key)) await ledger.cursor(source.key, Math.max(...posts.map(post => post.id)));
@@ -88,7 +95,7 @@ export async function collectSource(source: Source, ledger: Ledger, readPage: (p
     }
     for (const post of fresh) {
       if (post.id <= previous || !matchesKeyword(post.title)) continue;
-      if (await deliverOnce(ledger, `${source.key}:${post.id}`, `[${source.name}] 새 글 발견!\n> ${post.title}\n\n링크: ${post.link}`, send)) sent++;
+      if (await deliverOnce(ledger, `${source.key}:${post.id}`, formatAlert(source, post), send)) sent++;
     }
     // Require descending chronological lists; do not advance on incomplete/gapped scans.
     if (posts.some(post => post.id <= previous)) {

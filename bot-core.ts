@@ -1,6 +1,6 @@
 import { Ledger } from "./bot-state.js";
 
-export const KEYWORDS = ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지"];
+export const KEYWORDS = ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "이심", "esim"];
 export interface Post { id: number; title: string; link: string; notice: boolean }
 export interface Source { key: string; name: string; kind: "dc" | "naver"; url: string; clubId?: string }
 export const matchesKeyword = (title: string) => KEYWORDS.some(word => title.toLowerCase().includes(word.toLowerCase()));
@@ -46,6 +46,9 @@ export async function sendFirstPage(source: Source, ledger: Ledger, rows: Post[]
 export async function sendRecentPages(source: Source, ledger: Ledger, readPage: (page: number) => Promise<Post[]>, send: (text: string) => Promise<void>, count: number, legacyChecked = new Set<number>(), fallbackCount = count, legacyFloor = 0) {
   if (!Number.isInteger(count) || count < 1 || count > 20 || !Number.isInteger(fallbackCount) || fallbackCount < count || fallbackCount > 20)
     throw new Error("최초 수동 수집은 최대 20페이지만 허용합니다.");
+  // Once a source has been scanned, even manual runs must only alert newer IDs.
+  // Keyword additions and title edits must not resurrect previously scanned history.
+  const alertFloor = Math.max(legacyFloor, ledger.cursors.get(source.key) ?? 0);
   const posts = new Map<number, Post>();
   const pageSignatures = new Set<string>();
   let pagesRead = 0;
@@ -60,13 +63,13 @@ export async function sendRecentPages(source: Source, ledger: Ledger, readPage: 
     pagesRead = number;
     console.log(`  ${number}페이지 확인 (${rows.length}개 일반 글)`);
     if (number === count) {
-      const eligible = [...posts.values()].some(post => post.id > legacyFloor && matchesKeyword(post.title) && !legacyChecked.has(post.id) && !ledger.attempts.has(`${source.key}:${post.id}`));
+      const eligible = [...posts.values()].some(post => post.id > alertFloor && matchesKeyword(post.title) && !legacyChecked.has(post.id) && !ledger.attempts.has(`${source.key}:${post.id}`));
       if (eligible) break;
       if (fallbackCount > count) console.log(`  ${count}페이지 내 미전송 키워드 글 없음 → ${fallbackCount}페이지까지 확장`);
     }
   }
   const rows = [...posts.values()].sort((a, b) => b.id - a.id);
-  const result = await sendFirstPage(source, ledger, rows, send, legacyChecked, legacyFloor);
+  const result = await sendFirstPage(source, ledger, rows, send, legacyChecked, alertFloor);
   // This explicitly requested historical window is complete; older history is excluded.
   await ledger.cursor(source.key, rows[0].id);
   return { ...result, pagesRead };

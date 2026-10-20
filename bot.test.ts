@@ -18,9 +18,9 @@ async function fixture(run: (dir: string, ledger: Ledger) => Promise<void>) {
   }
 }
 
-test("only the seven brand keywords match", () => {
-  for (const title of ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지"]) assert.ok(matchesKeyword(title));
-  for (const title of ["일본 유심 추천", "이심 질문", "eSIM", "로깨비", "로밍망", "로컬망"]) assert.equal(matchesKeyword(title), false);
+test("brand keywords plus 이심 and case-insensitive esim match", () => {
+  for (const title of ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "일본 이심 추천", "esim", "eSIM 후기", "ESIM 질문", "EsIm 설치"]) assert.ok(matchesKeyword(title));
+  for (const title of ["일본 유심 추천", "로깨비", "로밍망", "로컬망"]) assert.equal(matchesKeyword(title), false);
 });
 test("explicit first page sends baseline-only matches once and preserves existing cursor", () => fixture(async (dir, ledger) => {
   await ledger.cursor(source.key, 20);
@@ -63,6 +63,17 @@ test("manual backfill reads exactly ten pages and never sends older history", ()
   await sendRecentPages(source, await Ledger.load(dir), read, async () => { sent++; }, 10);
   assert.equal(sent, 10);
   await assert.rejects(sendRecentPages(source, ledger, read, async () => assert.fail(), 21));
+}));
+test("later manual scans suppress old unalerted posts after keyword or title changes", () => fixture(async (_dir, ledger) => {
+  await ledger.cursor(source.key, 100);
+  const delivered: string[] = [];
+  const read = async () => [post(101, "eSIM 설치 질문"), post(99, "이심 새 키워드에 맞는 예전 글")];
+  await sendRecentPages(source, ledger, read, async message => { delivered.push(message); }, 1);
+  assert.equal(delivered.length, 1);
+  assert.ok(delivered[0].includes("eSIM 설치 질문"));
+  assert.equal(ledger.attempts.has(`${source.key}:99`), false);
+  await sendRecentPages(source, ledger, async () => [post(101, "말톡으로 수정한 제목"), post(99, "유심사로 수정한 예전 제목")], async message => { delivered.push(message); }, 1);
+  assert.equal(delivered.length, 1);
 }));
 test("backfill only expands to twenty when no unattempted matches exist in ten pages", () => fixture(async (_dir, ledger) => {
   const visited: number[] = [];

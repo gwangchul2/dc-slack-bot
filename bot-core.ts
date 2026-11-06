@@ -5,8 +5,9 @@ export interface Post { id: number; title: string; link: string; notice: boolean
 export interface Source { key: string; name: string; kind: "dc" | "naver"; url: string; clubId?: string }
 export const matchesKeyword = (title: string) => KEYWORDS.some(word => title.toLowerCase().includes(word.toLowerCase()));
 
-// Filter the recurring campaign header only in Osaka Holic; keep ordinary reviews.
+// Suppress Coolsim headers everywhere and the recurring Osaka Holic campaign.
 export const shouldNotify = (source: Source, title: string) => matchesKeyword(title) && !(
+  /\[쿨심\s+Coolsim\]/i.test(title.normalize("NFKC")) ||
   source.key === "naver:20421433" && /^\s*\[[^\p{L}\p{N}]*유심사\s*단독\s*프로모션\s*\]/u.test(title.normalize("NFKC"))
 );
 

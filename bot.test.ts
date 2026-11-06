@@ -22,6 +22,20 @@ test("brand keywords and case-insensitive esim match but generic 이심 does not
   for (const title of ["유심사", "유심사후기", "로밍도깨비", "와이파이도시락", "도시락이심", "말톡", "이심이지", "esim", "eSIM 후기", "ESIM 질문", "EsIm 설치"]) assert.ok(matchesKeyword(title));
   for (const title of ["일본 이심 추천", "이심 설치 질문", "일본 유심 추천", "로깨비", "로밍망", "로컬망"]) assert.equal(matchesKeyword(title), false);
 });
+test("Coolsim headers are suppressed in regular and manual scans while ordinary esim posts alert", () => fixture(async (_dir, ledger) => {
+  const cafe: Source = { ...source, key: "naver:11670610", clubId: "11670610", name: "중정공" };
+  const campaign = "[쿨심 Coolsim]중국 여행 데이터 준비, 쿨심 eSIM으로 편리하게 시작하세요!";
+  const rows = [post(103, campaign), post(102, "［쿨심 COOLSIM］ esim 할인"), post(101, "중국 eSIM 이용 후기"), post(100)];
+  const delivered: string[] = [];
+  await ledger.cursor(cafe.key, 100);
+  assert.equal(await collectSource(cafe, ledger, async () => rows, async message => { delivered.push(message); }, 1), 1);
+  assert.equal(ledger.cursors.get(cafe.key), 103);
+  assert.equal(ledger.attempts.has(`${cafe.key}:103`), false);
+  const result = await sendFirstPage(source, ledger, rows, async message => { delivered.push(message); }, new Set(), 100);
+  assert.equal(result.sent, 1);
+  assert.equal(delivered.length, 2);
+  assert.ok(delivered.every(message => message.includes("이용 후기")));
+}));
 test("Osaka campaign reposts are suppressed while reviews and other cafes still alert", () => fixture(async (_dir, ledger) => {
   const osaka: Source = { ...source, key: "naver:20421433", clubId: "20421433", name: "오사카홀릭" };
   const campaign = "[🔥유심사 단독 프로모션] 유심 이심 30% 추가할인 / 이심 600원부터 ~";
